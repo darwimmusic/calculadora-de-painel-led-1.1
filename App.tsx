@@ -458,6 +458,14 @@ const App: React.FC = () => {
     outputToRender?: VideoOutput;
     viewport: { zoom: number; pan: { x: number; y: number } };
   } | null>(null);
+
+  interface ExportSheetSelection {
+    layout: boolean;
+    cabling: boolean;
+    outputs: Record<string, boolean>;
+  }
+  const [exportSheetSelection, setExportSheetSelection] = useState<ExportSheetSelection>({ layout: true, cabling: true, outputs: {} });
+
   
   const [customPanelTypes, setCustomPanelTypes] = useState<PanelTypeInfo[]>([]);
   const allPanelTypes = useMemo(() => [...PANEL_TYPES, ...customPanelTypes], [customPanelTypes]);
@@ -1160,6 +1168,49 @@ const App: React.FC = () => {
     return { zoom: newZoom, pan: { x: newPanX, y: newPanY } };
   }, [contentBounds]);
 
+  const handleOpenExportModal = () => {
+    setExportSheetSelection({
+        layout: true,
+        cabling: true,
+        outputs: videoOutputs.reduce((acc, output) => {
+            acc[output.id] = true;
+            return acc;
+        }, {} as Record<string, boolean>)
+    });
+    setIsExportModalOpen(true);
+  };
+
+  const handleExportSheetChange = (type: 'layout' | 'cabling' | 'output', id?: string) => {
+    setExportSheetSelection(prev => {
+        if (type === 'output' && id) {
+            const newOutputs = { ...prev.outputs, [id]: !prev.outputs[id] };
+            return { ...prev, outputs: newOutputs };
+        }
+        if (type === 'layout' || type === 'cabling') {
+            return { ...prev, [type]: !prev[type] };
+        }
+        return prev;
+    });
+  };
+
+  const handleSelectAllSheets = () => {
+    setExportSheetSelection(prev => ({
+        layout: true,
+        cabling: true,
+        outputs: Object.keys(prev.outputs).reduce((acc, key) => ({ ...acc, [key]: true }), {})
+    }));
+  };
+
+  const handleDeselectAllSheets = () => {
+    setExportSheetSelection(prev => ({
+        layout: false,
+        cabling: false,
+        outputs: Object.keys(prev.outputs).reduce((acc, key) => ({ ...acc, [key]: false }), {})
+    }));
+  };
+
+  const isAnySheetSelected = useMemo(() => exportSheetSelection.layout || exportSheetSelection.cabling || Object.values(exportSheetSelection.outputs).some(v => v), [exportSheetSelection]);
+
   const handleGeneratePdf = async () => {
     setIsExportModalOpen(false);
     setIsExporting(true);
@@ -1167,12 +1218,21 @@ const App: React.FC = () => {
     const { jsPDF } = jspdf;
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'px' });
     
-    const viewsToExport: (ViewMode | {type: 'output', output: VideoOutput})[] = [
-      'layout', 
-      'cabling', 
-      ...videoOutputs.map(o => ({ type: 'output' as const, output: o }))
-    ];
+    const viewsToExport: (ViewMode | {type: 'output', output: VideoOutput})[] = [];
+    if (exportSheetSelection.layout) {
+        viewsToExport.push('layout');
+    }
+    if (exportSheetSelection.cabling) {
+        viewsToExport.push('cabling');
+    }
+    videoOutputs.forEach(output => {
+        if (exportSheetSelection.outputs[output.id]) {
+            viewsToExport.push({ type: 'output' as const, output });
+        }
+    });
 
+    if (viewsToExport.length === 0) return;
+    
     const exportTitles: Record<ViewMode, string> = {
       layout: 'Disposição dos Painéis',
       cabling: 'Mapa de Cabeamento',
@@ -1420,11 +1480,18 @@ const App: React.FC = () => {
       const x = (e.clientX - rect.left) / zoom - pan.x;
       const y = (e.clientY - rect.top) / zoom - pan.y;
 
-      updatePanel(panelId, {
+      const updateData: Partial<Panel> = {
         outputId: selectedOutput.id,
         outputPosition: { x: Math.round(x), y: Math.round(y) },
-        outputRotation: 0,
-      });
+      };
+
+      // Only reset rotation if it's a new assignment.
+      // If moving from another output, preserve existing rotation.
+      if (!panel.outputId) {
+        updateData.outputRotation = 0;
+      }
+
+      updatePanel(panelId, updateData);
       setSelectedOutputPanelId(panelId);
     }
   };
@@ -1454,7 +1521,7 @@ const App: React.FC = () => {
                     <h1 className="text-2xl font-bold text-brand-gray-text">Calculadora de Painel LED</h1>
                 </div>
                 <button 
-                  onClick={() => setIsExportModalOpen(true)}
+                  onClick={handleOpenExportModal}
                   disabled={isExporting}
                   className="flex items-center space-x-2 bg-brand-purple text-white px-4 py-2 rounded-lg hover:bg-brand-purple-dark transition-colors shadow-sm disabled:bg-brand-gray-dark disabled:cursor-not-allowed">
                     <ExportIcon className="w-5 h-5"/>
@@ -1490,6 +1557,38 @@ const App: React.FC = () => {
                   <input type="text" id="docDate" value={exportConfig.docDate} onChange={(e) => setExportConfig(c => ({...c, docDate: e.target.value}))} className="w-full px-3 py-2 bg-white border border-brand-gray rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-purple" />
                 </div>
               </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-brand-gray-text mb-1">Folhas a Incluir no PDF</h3>
+                <div className="flex items-center space-x-4 mb-3">
+                    <button onClick={handleSelectAllSheets} className="text-sm text-brand-purple hover:underline">Selecionar Tudo</button>
+                    <button onClick={handleDeselectAllSheets} className="text-sm text-brand-purple hover:underline">Limpar Seleção</button>
+                </div>
+                <div className="space-y-3 p-4 bg-brand-gray-light rounded-lg border border-brand-gray">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                      <input type="checkbox" checked={exportSheetSelection.layout} onChange={() => handleExportSheetChange('layout')} className="h-4 w-4 rounded border-gray-300 text-brand-purple focus:ring-brand-purple" />
+                      <span className="text-brand-gray-text">Disposição dos Painéis (Layout)</span>
+                  </label>
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                      <input type="checkbox" checked={exportSheetSelection.cabling} onChange={() => handleExportSheetChange('cabling')} className="h-4 w-4 rounded border-gray-300 text-brand-purple focus:ring-brand-purple" />
+                      <span className="text-brand-gray-text">Mapa de Cabeamento</span>
+                  </label>
+                  {videoOutputs.length > 0 && <div className="pt-2 border-t border-brand-gray">
+                     <p className="text-sm font-medium text-brand-gray-dark mb-2">Outputs de Vídeo:</p>
+                     <div className="space-y-2 pl-4">
+                       {videoOutputs.map(output => (
+                         <label key={output.id} className="flex items-center space-x-3 cursor-pointer">
+                             <input type="checkbox" checked={!!exportSheetSelection.outputs[output.id]} onChange={() => handleExportSheetChange('output', output.id)} className="h-4 w-4 rounded border-gray-300 text-brand-purple focus:ring-brand-purple" />
+                             <span className="text-brand-gray-text">Mapa de Output - {output.name}</span>
+                         </label>
+                       ))}
+                     </div>
+                   </div>
+                  }
+                </div>
+              </div>
+
+
               <div>
                 <label className="block text-sm font-medium text-brand-gray-dark mb-1">Logo Personalizado (PNG/JPG)</label>
                 <div className="mt-2 flex items-center gap-4">
@@ -1507,7 +1606,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex justify-end items-center p-6 bg-brand-gray-light rounded-b-xl space-x-4">
               <button onClick={() => setIsExportModalOpen(false)} className="px-4 py-2 rounded-lg text-brand-gray-text hover:bg-brand-gray transition-colors">Cancelar</button>
-              <button onClick={handleGeneratePdf} className="flex items-center space-x-2 bg-brand-purple text-white px-5 py-2 rounded-lg hover:bg-brand-purple-dark transition-colors shadow-sm">
+              <button onClick={handleGeneratePdf} disabled={!isAnySheetSelected} className="flex items-center space-x-2 bg-brand-purple text-white px-5 py-2 rounded-lg hover:bg-brand-purple-dark transition-colors shadow-sm disabled:bg-brand-gray-dark disabled:cursor-not-allowed">
                 <span>Exportar PDF</span>
               </button>
             </div>
@@ -1826,7 +1925,7 @@ const App: React.FC = () => {
                             {videoOutputs.map(output => (
                               <div key={output.id} onClick={() => setSelectedOutputId(output.id)} className={`p-2 rounded-lg cursor-pointer transition-colors ${selectedOutputId === output.id ? 'bg-brand-purple-light' : 'hover:bg-gray-100'}`}>
                                 <div className="flex items-center justify-between">
-                                  <input type="text" value={output.name} onChange={e => updateVideoOutput(output.id, { name: e.target.value })} className={`font-semibold text-sm w-full bg-white border border-gray-200 focus:ring-1 focus:ring-brand-purple rounded-md px-1 ${selectedOutputId === output.id ? 'text-brand-purple-dark' : 'text-brand-gray-text'}`} />
+                                  <input type="text" value={output.name} onChange={e => updateVideoOutput(output.id, { name: e.target.value })} className={`font-semibold text-sm w-full bg-transparent border border-transparent focus:bg-white focus:border-gray-200 focus:ring-1 focus:ring-brand-purple rounded-md px-1 ${selectedOutputId === output.id ? 'text-brand-purple-dark' : 'text-brand-gray-text'}`} />
                                   {videoOutputs.length > 1 && <button onClick={(e) => { e.stopPropagation(); removeVideoOutput(output.id); }} className="text-red-400 hover:text-red-600 ml-2"><TrashIcon className="w-4 h-4" /></button>}
                                 </div>
                                 <div className="flex items-center gap-2 mt-1">
@@ -1841,22 +1940,35 @@ const App: React.FC = () => {
                         </div>
 
                         <div className="flex-1 flex flex-col min-h-0">
-                           <h4 className="font-semibold text-brand-gray-text mb-2 px-1">Painéis Não Atribuídos</h4>
+                           <h4 className="font-semibold text-brand-gray-text mb-2 px-1">Todos os Painéis</h4>
                            <div className="space-y-1 overflow-y-auto flex-1 pr-1">
-                               {panels.filter(p => !p.outputId).map(panel => (
-                                   <div key={panel.id}
-                                       draggable
-                                       onDragStart={(e) => {
-                                           e.dataTransfer.effectAllowed = 'move';
-                                           e.dataTransfer.setData('text/plain', panel.id);
-                                       }}
-                                       className="p-2 rounded-md bg-gray-50 border cursor-grab active:cursor-grabbing"
-                                   >
-                                       <p className="font-medium text-sm truncate text-brand-gray-text">{panel.name}</p>
-                                   </div>
-                               ))}
-                               {panels.every(p => p.outputId) && (
-                                   <p className="text-xs text-center text-gray-500 py-4">Todos os painéis foram atribuídos.</p>
+                               {panels.map(panel => {
+                                   const isAssigned = !!panel.outputId;
+                                   const assignedOutput = isAssigned ? videoOutputs.find(o => o.id === panel.outputId) : null;
+                                   return (
+                                       <div key={panel.id}
+                                           draggable
+                                           onDragStart={(e) => {
+                                               e.dataTransfer.effectAllowed = 'move';
+                                               e.dataTransfer.setData('text/plain', panel.id);
+                                           }}
+                                           className={`p-2 rounded-md border cursor-grab active:cursor-grabbing transition-colors ${
+                                               isAssigned 
+                                               ? 'bg-green-50 border-green-300' 
+                                               : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                                           }`}
+                                       >
+                                           <p className="font-medium text-sm truncate text-brand-gray-text">{panel.name}</p>
+                                           {isAssigned && assignedOutput && (
+                                               <p className="text-xs text-green-700 truncate">
+                                                   Atribuído a: {assignedOutput.name}
+                                               </p>
+                                           )}
+                                       </div>
+                                   )
+                               })}
+                               {panels.length === 0 && (
+                                   <p className="text-xs text-center text-gray-500 py-4">Nenhum painel criado ainda.</p>
                                )}
                            </div>
                         </div>
