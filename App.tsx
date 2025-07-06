@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Panel, PanelLayoutType, PanelMetrics, PanelTypeInfo, Cable, CablePoint, CablingPattern, ViewMode } from './types';
+import { Panel, PanelLayoutType, PanelMetrics, PanelTypeInfo, Cable, CablePoint, CablingPattern, ViewMode, VideoOutput } from './types';
 import { PANEL_TYPES, CONTENT_MANUAL_DEFAULT } from './constants';
 import { calculatePanelMetrics } from './services/calculationService';
-import { CalculatorIcon, ExportIcon, GridIcon, DimensionsIcon, WeightIcon, PowerIcon, ResolutionIcon, PlusIcon, TrashIcon, BookOpenIcon, ZoomInIcon, ZoomOutIcon, RefreshIcon, EditIcon, EraserIcon, ImageUploadIcon, CableIcon, MonitorIcon, RotateCwIcon, RotateCcwIcon } from './components/icons';
+import { CalculatorIcon, ExportIcon, GridIcon, DimensionsIcon, WeightIcon, PowerIcon, ResolutionIcon, PlusIcon, TrashIcon, BookOpenIcon, ZoomInIcon, ZoomOutIcon, RefreshIcon, EditIcon, EraserIcon, ImageUploadIcon, CableIcon, MonitorIcon, RotateCwIcon, RotateCcwIcon, XIcon } from './components/icons';
 import CustomSelect from './components/CustomSelect';
 
 declare const jspdf: any;
@@ -130,6 +130,7 @@ const OutputPanel = React.memo(({
     style,
     isSelected,
     onPanelDragStart,
+    onUnassign,
     isExporting = false,
     panelNumber,
 }: {
@@ -138,6 +139,7 @@ const OutputPanel = React.memo(({
     style: React.CSSProperties,
     isSelected: boolean,
     onPanelDragStart: (panelId: string, e: React.MouseEvent) => void;
+    onUnassign: (panelId: string) => void;
     isExporting?: boolean;
     panelNumber: number;
 }) => {
@@ -160,7 +162,7 @@ const OutputPanel = React.memo(({
 
     return (
         <div
-            className={`absolute shadow-lg border transition-all duration-150 ${!isExporting ? 'cursor-move' : ''} ${isSelected && !isExporting ? 'ring-2 ring-amber-400 z-20' : 'z-10'} ${theme.border}`}
+            className={`absolute shadow-lg border transition-all duration-150 group ${!isExporting ? 'cursor-move' : ''} ${isSelected && !isExporting ? 'ring-2 ring-amber-400 z-20' : 'z-10'} ${theme.border}`}
             style={finalStyle}
             onMouseDown={(e) => { e.stopPropagation(); onPanelDragStart(panel.id, e); }}
         >
@@ -183,15 +185,25 @@ const OutputPanel = React.memo(({
             </div>
 
             {/* Number Display */}
-            <div className={`absolute top-1 left-1 bg-brand-purple text-white rounded-full flex items-center justify-center font-bold shadow-md z-10 ${isExporting ? 'w-8 h-8 text-lg' : 'w-5 h-5 text-xs'}`}>
+            <div className={`absolute top-2 left-2 bg-brand-purple text-white rounded-full flex items-center justify-center font-bold shadow-md z-10 ${isExporting ? 'w-8 h-8 text-lg' : 'w-9 h-9 text-xl'}`}>
                 {panelNumber}
             </div>
+            
+            {!isExporting && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onUnassign(panel.id); }}
+                    title="Remover do Output"
+                    className="absolute -top-4 -right-4 bg-red-500 text-white rounded-full p-2 shadow-lg opacity-0 group-hover:opacity-100 transition-all z-20 hover:bg-red-700 hover:scale-110"
+                >
+                    <XIcon className="w-6 h-6" />
+                </button>
+            )}
 
             {/* Overlay for text information */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
-                 <div className="text-center text-white p-1 overflow-hidden bg-black/40 rounded-md">
-                    <p className="text-xs font-bold truncate">{panel.name}</p>
-                    <p className="text-[10px] font-mono leading-tight">{metrics.totalPxWidth}x{metrics.totalPxHeight}px</p>
+            <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                 <div className="text-center text-white p-2 overflow-hidden bg-black/50 rounded-lg">
+                    <p className="text-lg font-bold truncate">{panel.name}</p>
+                    <p className="text-sm font-mono leading-tight">{metrics.totalPxWidth}x{metrics.totalPxHeight}px</p>
                 </div>
             </div>
         </div>
@@ -442,7 +454,8 @@ const App: React.FC = () => {
   const [exportProgressMessage, setExportProgressMessage] = useState('');
   const [exportRenderData, setExportRenderData] = useState<{
     config: typeof exportConfig;
-    view: ViewMode;
+    view: ViewMode | 'output_export';
+    outputToRender?: VideoOutput;
     viewport: { zoom: number; pan: { x: number; y: number } };
   } | null>(null);
   
@@ -459,7 +472,22 @@ const App: React.FC = () => {
   const DOUBLE_CLICK_THRESHOLD = 300; // ms
   const [isDeleteCableMode, setIsDeleteCableMode] = useState(false);
   
-  const [outputResolution, setOutputResolution] = useState({ width: 1920, height: 1080 });
+  const [videoOutputs, setVideoOutputs] = useState<VideoOutput[]>([
+      { id: `output_${Date.now()}`, name: 'Output Principal', width: 1920, height: 1080 }
+  ]);
+  const [selectedOutputId, setSelectedOutputId] = useState<string | null>(videoOutputs[0]?.id || null);
+
+  const selectedOutput = useMemo(() => {
+    return videoOutputs.find(o => o.id === selectedOutputId);
+  }, [videoOutputs, selectedOutputId]);
+
+  useEffect(() => {
+      if (!selectedOutputId && videoOutputs.length > 0) {
+          setSelectedOutputId(videoOutputs[0].id);
+      } else if (videoOutputs.length === 0) {
+          setSelectedOutputId(null);
+      }
+  }, [videoOutputs, selectedOutputId]);
 
   // Auto-cabling state
   const [selectedPanelsForCabling, setSelectedPanelsForCabling] = useState<string[]>([]);
@@ -481,7 +509,7 @@ const App: React.FC = () => {
       spacingRightM: layoutType === 'dj-booth' ? 0 : 1.5,
       hiddenModuleIndices: [],
       colorTheme: DEFAULT_COLOR_THEME,
-      outputPosition: { x: 20, y: 20 },
+      // No output assignment initially
       outputRotation: 0,
     };
     
@@ -572,6 +600,35 @@ const App: React.FC = () => {
           setSelectedOutputPanelId(panelId);
       }
   }, [viewMode, isEditMode, drawingState.active, isDeleteCableMode]);
+
+  const addVideoOutput = () => {
+      const newOutput: VideoOutput = {
+          id: `output_${Date.now()}`,
+          name: `Output ${videoOutputs.length + 1}`,
+          width: 1920,
+          height: 1080
+      };
+      setVideoOutputs(prev => [...prev, newOutput]);
+      setSelectedOutputId(newOutput.id);
+  };
+
+  const updateVideoOutput = (id: string, newConfig: Partial<VideoOutput>) => {
+      setVideoOutputs(prev => prev.map(o => o.id === id ? { ...o, ...newConfig } : o));
+  };
+
+  const removeVideoOutput = (id: string) => {
+      // Unassign all panels from this output
+      setPanels(prev => prev.map(p => p.outputId === id ? { ...p, outputId: undefined, outputPosition: undefined } : p));
+      
+      // Remove the output
+      setVideoOutputs(prev => {
+          const newOutputs = prev.filter(o => o.id !== id);
+          if (selectedOutputId === id) {
+              setSelectedOutputId(newOutputs[0]?.id || null);
+          }
+          return newOutputs;
+      });
+  };
   
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -600,7 +657,8 @@ const App: React.FC = () => {
        if (selectedOutputPanelId && (event.key === 'Delete' || event.key === 'Backspace')) {
           const panelToRemove = panels.find(p => p.id === selectedOutputPanelId);
           if (panelToRemove) {
-            removePanel(panelToRemove.id);
+             updatePanel(panelToRemove.id, { outputId: undefined, outputPosition: undefined });
+             setSelectedOutputPanelId(null);
           }
        }
     };
@@ -608,7 +666,7 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [drawingState.active, selectedCableId, selectedPanelsForCabling.length, isDeleteCableMode, selectedOutputPanelId, panels, removePanel]);
+  }, [drawingState.active, selectedCableId, selectedPanelsForCabling.length, isDeleteCableMode, selectedOutputPanelId, panels, removePanel, updatePanel]);
 
   const panelMetrics = useMemo(() => {
     const metricsMap = new Map<string, PanelMetrics>();
@@ -833,16 +891,17 @@ const App: React.FC = () => {
 
     const BORDER_PADDING = 150;
     const container = displayAreaRef.current;
-    const availableWidth = viewMode === 'output' ? container.clientWidth - 256 : container.clientWidth; // 256px for sidebar
-    const containerHeight = container.clientHeight;
-
+    
     if (viewMode === 'output') {
-        const scaleX = (availableWidth - BORDER_PADDING) / outputResolution.width;
-        const scaleY = (containerHeight - BORDER_PADDING) / outputResolution.height;
+        if (!selectedOutput) return;
+        const availableWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
+        const scaleX = (availableWidth - BORDER_PADDING) / selectedOutput.width;
+        const scaleY = (containerHeight - BORDER_PADDING) / selectedOutput.height;
         const newZoom = Math.min(scaleX, scaleY, 2);
 
-        const newPanX = (availableWidth / newZoom - outputResolution.width) / 2;
-        const newPanY = (containerHeight / newZoom - outputResolution.height) / 2;
+        const newPanX = (availableWidth / newZoom - selectedOutput.width) / 2;
+        const newPanY = (containerHeight / newZoom - selectedOutput.height) / 2;
         
         setZoom(newZoom);
         setPan({ x: newPanX, y: newPanY });
@@ -866,11 +925,11 @@ const App: React.FC = () => {
     
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
-  }, [contentBounds, panels.length, viewMode, outputResolution]);
+  }, [contentBounds, panels.length, viewMode, selectedOutput]);
 
   useEffect(() => {
       centerAndFit();
-  }, [centerAndFit, viewMode]);
+  }, [centerAndFit, viewMode, selectedOutputId]);
   
   const handleResetLayout = () => {
     setPanels(prev => prev.map(p => ({ ...p, customPosition: undefined, hiddenModuleIndices: [] })));
@@ -925,7 +984,7 @@ const App: React.FC = () => {
         return;
     }
     
-    if (viewMode === 'output' && draggingOutputPanel && displayAreaRef.current) {
+    if (viewMode === 'output' && draggingOutputPanel && displayAreaRef.current && selectedOutput) {
         const displayAreaRect = displayAreaRef.current.getBoundingClientRect();
         const mouseX = (e.clientX - displayAreaRect.left) / zoom - pan.x;
         const mouseY = (e.clientY - displayAreaRect.top) / zoom - pan.y;
@@ -939,10 +998,10 @@ const App: React.FC = () => {
         
         const draggingBox = getOutputPanelBoundingBox({ ...draggingP, outputPosition: {x: rawX, y: rawY}}, draggingM)!;
         
-        const targetXEdges = [0, outputResolution.width];
-        const targetYEdges = [0, outputResolution.height];
-        panels.forEach(p => {
-            if (p.id === draggingOutputPanel.id) return;
+        const targetXEdges = [0, selectedOutput.width];
+        const targetYEdges = [0, selectedOutput.height];
+
+        panels.filter(p => p.outputId === selectedOutputId && p.id !== draggingOutputPanel.id).forEach(p => {
             const staticM = panelMetrics.metricsMap.get(p.id);
             const staticBox = getOutputPanelBoundingBox(p, staticM);
             if (staticBox) {
@@ -1069,22 +1128,22 @@ const App: React.FC = () => {
     }
   };
 
-  const calculateExportViewport = useCallback((view: ViewMode) => {
+  const calculateExportViewport = useCallback((view: ViewMode | 'output_export', output?: VideoOutput) => {
     const EXPORT_CONTAINER_WIDTH = 1472; // 1600px container - (p-16 * 2) = 1472px
     const EXPORT_DISPLAY_HEIGHT = 800;
 
-    if (view === 'output') {
+    if (view === 'output_export' && output) {
         const EXPORT_OUTPUT_SIDEBAR_WIDTH = 384; // w-96
         const EXPORT_OUTPUT_CANVAS_AREA_WIDTH = EXPORT_CONTAINER_WIDTH - 64 - EXPORT_OUTPUT_SIDEBAR_WIDTH; // 1408 - 384 = 1024
         const BORDER_PADDING = 50;
 
-        if (outputResolution.width <= 0 || outputResolution.height <= 0) return { zoom: 1, pan: { x: 0, y: 0 }};
-        const scaleX = (EXPORT_OUTPUT_CANVAS_AREA_WIDTH - BORDER_PADDING) / outputResolution.width;
-        const scaleY = (EXPORT_DISPLAY_HEIGHT - BORDER_PADDING) / outputResolution.height;
+        if (output.width <= 0 || output.height <= 0) return { zoom: 1, pan: { x: 0, y: 0 }};
+        const scaleX = (EXPORT_OUTPUT_CANVAS_AREA_WIDTH - BORDER_PADDING) / output.width;
+        const scaleY = (EXPORT_DISPLAY_HEIGHT - BORDER_PADDING) / output.height;
         const newZoom = Math.min(scaleX, scaleY);
         
-        const newPanX = ((EXPORT_OUTPUT_CANVAS_AREA_WIDTH / newZoom) - outputResolution.width) / 2;
-        const newPanY = ((EXPORT_DISPLAY_HEIGHT / newZoom) - outputResolution.height) / 2;
+        const newPanX = ((EXPORT_OUTPUT_CANVAS_AREA_WIDTH / newZoom) - output.width) / 2;
+        const newPanY = ((EXPORT_DISPLAY_HEIGHT / newZoom) - output.height) / 2;
         return { zoom: newZoom, pan: { x: newPanX, y: newPanY } };
     }
     
@@ -1099,7 +1158,7 @@ const App: React.FC = () => {
     const newPanX = ((EXPORT_DISPLAY_WIDTH / newZoom) - contentBounds.width) / 2 - contentBounds.minX;
     const newPanY = ((EXPORT_DISPLAY_HEIGHT / newZoom) - contentBounds.height) / 2 - contentBounds.minY;
     return { zoom: newZoom, pan: { x: newPanX, y: newPanY } };
-  }, [contentBounds, outputResolution]);
+  }, [contentBounds]);
 
   const handleGeneratePdf = async () => {
     setIsExportModalOpen(false);
@@ -1108,7 +1167,12 @@ const App: React.FC = () => {
     const { jsPDF } = jspdf;
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'px' });
     
-    const viewsToExport: ViewMode[] = ['layout', 'cabling', 'output'];
+    const viewsToExport: (ViewMode | {type: 'output', output: VideoOutput})[] = [
+      'layout', 
+      'cabling', 
+      ...videoOutputs.map(o => ({ type: 'output' as const, output: o }))
+    ];
+
     const exportTitles: Record<ViewMode, string> = {
       layout: 'Disposição dos Painéis',
       cabling: 'Mapa de Cabeamento',
@@ -1117,14 +1181,28 @@ const App: React.FC = () => {
 
     try {
       for (let i = 0; i < viewsToExport.length; i++) {
-        const view = viewsToExport[i];
-        setExportProgressMessage(`Gerando ${exportTitles[view]} (${i + 1} de ${viewsToExport.length})...`);
+        const viewOrOutput = viewsToExport[i];
+        let view: ViewMode | 'output_export';
+        let outputToRender: VideoOutput | undefined;
+        let pageTitle: string;
+
+        if (typeof viewOrOutput === 'string') {
+          view = viewOrOutput;
+          pageTitle = exportTitles[view];
+        } else {
+          view = 'output_export';
+          outputToRender = viewOrOutput.output;
+          pageTitle = `${exportTitles.output} - ${outputToRender.name}`;
+        }
         
-        const viewport = calculateExportViewport(view);
+        setExportProgressMessage(`Gerando ${pageTitle} (${i + 1} de ${viewsToExport.length})...`);
+        
+        const viewport = calculateExportViewport(view, outputToRender);
 
         setExportRenderData({
             config: exportConfig,
             view: view,
+            outputToRender: outputToRender,
             viewport: viewport,
         });
 
@@ -1331,63 +1409,33 @@ const App: React.FC = () => {
       }));
   };
 
-  const renderExportContent = (view: ViewMode) => {
-    switch (view) {
-      case 'output':
-        return (
-          <div className="relative bg-gray-900 border border-gray-700 shadow-inner" style={{ width: outputResolution.width, height: outputResolution.height }}>
-            {panels.map((panel, index) => {
-              if (!panel.outputPosition) return null;
-              const metrics = panelMetrics.metricsMap.get(panel.id);
-              const pos = panel.outputPosition;
-              if (!metrics) return null;
-              return (
-                <OutputPanel
-                  key={panel.id}
-                  panel={panel}
-                  metrics={metrics}
-                  isSelected={false}
-                  isExporting={true}
-                  style={{
-                    width: metrics.totalPxWidth,
-                    height: metrics.totalPxHeight,
-                    transform: `translate(${pos.x}px, ${pos.y}px)`,
-                    transformOrigin: 'top left',
-                  }}
-                  onPanelDragStart={() => {}}
-                  panelNumber={index + 1}
-                />
-              );
-            })}
-          </div>
-        );
-      default:
-        return null;
+  const handleDropOnOutput = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!selectedOutput) return;
+    e.preventDefault();
+    const panelId = e.dataTransfer.getData('text/plain');
+    const panel = panels.find(p => p.id === panelId);
+
+    if (panel && displayAreaRef.current) {
+      const rect = (e.target as HTMLElement).getBoundingClientRect();
+      const x = (e.clientX - rect.left) / zoom - pan.x;
+      const y = (e.clientY - rect.top) / zoom - pan.y;
+
+      updatePanel(panelId, {
+        outputId: selectedOutput.id,
+        outputPosition: { x: Math.round(x), y: Math.round(y) },
+        outputRotation: 0,
+      });
+      setSelectedOutputPanelId(panelId);
     }
   };
 
-  const handleSidebarDrop = (dropTargetId: string) => {
-    if (!draggingSidebarPanelId || draggingSidebarPanelId === dropTargetId) {
-        setSidebarDropTargetId(null);
-        return;
+  const handleUnassignFromOutput = useCallback((panelId: string) => {
+    updatePanel(panelId, { outputId: undefined, outputPosition: undefined });
+    if(selectedOutputPanelId === panelId) {
+      setSelectedOutputPanelId(null);
     }
+  }, [updatePanel, selectedOutputPanelId]);
 
-    const draggedIndex = panels.findIndex(p => p.id === draggingSidebarPanelId);
-    const targetIndex = panels.findIndex(p => p.id === dropTargetId);
-
-    if (draggedIndex === -1 || targetIndex === -1) {
-        setSidebarDropTargetId(null);
-        return;
-    }
-
-    const newPanels = [...panels];
-    const [draggedItem] = newPanels.splice(draggedIndex, 1);
-    newPanels.splice(targetIndex, 0, draggedItem);
-    
-    setPanels(newPanels);
-    setDraggingSidebarPanelId(null);
-    setSidebarDropTargetId(null);
-  };
 
   return (
     <div className="bg-brand-gray-light min-h-screen font-sans text-brand-gray-text">
@@ -1399,7 +1447,7 @@ const App: React.FC = () => {
       )}
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center py-4">
                 <div className="flex items-center space-x-3">
                     <CalculatorIcon className="w-8 h-8 text-brand-purple"/>
@@ -1473,7 +1521,7 @@ const App: React.FC = () => {
         onSave={handleSaveCustomPanelType}
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <main className="px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Panel Controller */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <button onClick={() => addPanel('left-strip', 'Tira Lateral Esquerda')} className="bg-white p-4 rounded-xl border border-brand-gray hover:border-brand-purple hover:shadow-lg transition-all flex items-center justify-center space-x-2">
@@ -1534,45 +1582,70 @@ const App: React.FC = () => {
                     </div>
                  )}
 
-                {exportRenderData.view === 'output' ? (
-                  <div className="bg-white rounded-xl border border-brand-gray shadow-sm">
-                    <div className="flex" style={{ height: '864px' }}> {/* Give flex container a fixed height */}
-                      {/* Sidebar for Output Export */}
-                      <div className="w-96 p-8 pt-6 border-r border-brand-gray bg-brand-gray-light flex-shrink-0 flex flex-col">
-                        <h3 className="text-2xl font-bold text-brand-gray-text mb-2">
-                          Mapa de Output de Vídeo
-                        </h3>
-                        <h4 className="text-lg font-semibold text-gray-700">Resolução do Output</h4>
-                        <p className="font-mono text-gray-500 mb-6">{outputResolution.width}x{outputResolution.height}px</p>
-                        <h4 className="text-lg font-semibold text-gray-700 mb-3">Painéis Mapeados</h4>
-                        <div className="space-y-2 overflow-y-auto flex-1">
-                          {panels.map((panel, index) => {
-                            const metrics = panelMetrics.metricsMap.get(panel.id);
-                            const hasPosition = !!panel.outputPosition;
-                            return (
-                              <div key={panel.id} className={`bg-white p-3 rounded-md border border-gray-200 ${!hasPosition && 'opacity-50 bg-gray-100'}`}>
-                                <p className="font-semibold text-gray-800 text-sm truncate">
-                                  <span className="font-bold w-8 inline-block text-center">{index + 1}.</span>{panel.name}
-                                </p>
-                                <div className="pl-8">
-                                  <p className="text-xs text-gray-600">Res: {metrics?.totalPxWidth}x{metrics?.totalPxHeight}px</p>
-                                  <p className="text-xs text-gray-600">Rot: {panel.outputRotation || 0}°</p>
-                                  {!hasPosition && <p className="text-xs text-red-500 font-medium">Não posicionado</p>}
+                {exportRenderData.view === 'output_export' && exportRenderData.outputToRender ? (() => {
+                  const outputToRender = exportRenderData.outputToRender!;
+                  const panelsInOutput = panels.filter(p => p.outputId === outputToRender.id);
+
+                  return (
+                    <div className="bg-white rounded-xl border border-brand-gray shadow-sm">
+                      <div className="flex" style={{ height: '864px' }}>
+                        <div className="w-96 p-8 pt-6 border-r border-brand-gray bg-brand-gray-light flex-shrink-0 flex flex-col">
+                          <h3 className="text-2xl font-bold text-brand-gray-text mb-2">
+                            Mapa de Output - {outputToRender.name}
+                          </h3>
+                          <h4 className="text-lg font-semibold text-gray-700">Resolução do Output</h4>
+                          <p className="font-mono text-gray-500 mb-6">{outputToRender.width}x{outputToRender.height}px</p>
+                          <h4 className="text-lg font-semibold text-gray-700 mb-3">Painéis Mapeados</h4>
+                          <div className="space-y-2 overflow-y-auto flex-1">
+                            {panelsInOutput.map((panel, index) => {
+                              const metrics = panelMetrics.metricsMap.get(panel.id);
+                              return (
+                                <div key={panel.id} className={`bg-white p-3 rounded-md border border-gray-200`}>
+                                  <p className="font-semibold text-gray-800 text-sm truncate">
+                                    <span className="font-bold w-8 inline-block text-center">{index + 1}.</span>{panel.name}
+                                  </p>
+                                  <div className="pl-8">
+                                    <p className="text-xs text-gray-600">Res: {metrics?.totalPxWidth}x{metrics?.totalPxHeight}px</p>
+                                    <p className="text-xs text-gray-600">Rot: {panel.outputRotation || 0}°</p>
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                      {/* Canvas for Output Export */}
-                      <div className="flex-1 relative bg-gray-800 overflow-hidden">
-                        <div className="absolute top-0 left-0" style={{ transform: `scale(${exportRenderData.viewport.zoom}) translate(${exportRenderData.viewport.pan.x}px, ${exportRenderData.viewport.pan.y}px)`, transformOrigin: 'top left' }}>
-                          {renderExportContent('output')}
+                        <div className="flex-1 relative bg-gray-800 overflow-hidden">
+                          <div className="absolute top-0 left-0" style={{ transform: `scale(${exportRenderData.viewport.zoom}) translate(${exportRenderData.viewport.pan.x}px, ${exportRenderData.viewport.pan.y}px)`, transformOrigin: 'top left' }}>
+                            <div className="relative bg-gray-900 border border-gray-700 shadow-inner" style={{ width: outputToRender.width, height: outputToRender.height }}>
+                              {panelsInOutput.map((panel, index) => {
+                                const metrics = panelMetrics.metricsMap.get(panel.id);
+                                const pos = panel.outputPosition;
+                                if (!metrics || !pos) return null;
+                                return (
+                                  <OutputPanel
+                                    key={panel.id}
+                                    panel={panel}
+                                    metrics={metrics}
+                                    isSelected={false}
+                                    isExporting={true}
+                                    style={{
+                                      width: metrics.totalPxWidth,
+                                      height: metrics.totalPxHeight,
+                                      transform: `translate(${pos.x}px, ${pos.y}px)`,
+                                      transformOrigin: 'top left',
+                                    }}
+                                    onPanelDragStart={() => {}}
+                                    onUnassign={() => {}}
+                                    panelNumber={index + 1}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
+                  );
+                })() : (
                   <div className="bg-white p-8 rounded-xl border border-brand-gray shadow-sm">
                       <h3 className="text-2xl font-bold text-brand-gray-text mb-6">
                         { exportRenderData.view === 'layout' ? 'Disposição dos Painéis' : 'Mapa de Cabeamento' }
@@ -1670,7 +1743,7 @@ const App: React.FC = () => {
                         <EraserIcon className="w-5 h-5"/>
                     </button>
                     <button onClick={handleResetLayout} className="p-2 rounded-md hover:bg-brand-gray" title="Resetar Layout">
-                        <RefreshIcon className="w-5 h-5 text-red-500"/>
+                        <RefreshIcon className="w-6 h-6 text-red-500"/>
                     </button>
                     </>
                  )}
@@ -1743,91 +1816,55 @@ const App: React.FC = () => {
                     </div>
                 </div>
             )}
-            {viewMode === 'output' && (
-              <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-brand-gray space-y-3">
-                <h4 className="text-lg font-semibold text-brand-gray-text">Configuração do Output de Vídeo</h4>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-                    <div>
-                        <label htmlFor="output-width" className="block text-sm font-medium text-brand-gray-dark mb-1">Largura (px)</label>
-                        <input type="number" id="output-width" value={outputResolution.width} onChange={e => setOutputResolution(r => ({...r, width: parseInt(e.target.value) || 0}))} className="w-full px-3 py-2 bg-white border border-brand-gray rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-purple" />
-                    </div>
-                    <div>
-                        <label htmlFor="output-height" className="block text-sm font-medium text-brand-gray-dark mb-1">Altura (px)</label>
-                        <input type="number" id="output-height" value={outputResolution.height} onChange={e => setOutputResolution(r => ({...r, height: parseInt(e.target.value) || 0}))} className="w-full px-3 py-2 bg-white border border-brand-gray rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-purple" />
-                    </div>
-                    <div className="flex items-center gap-2 pt-6">
-                        <button onClick={() => setOutputResolution({width: 1280, height: 720})} className="text-xs font-semibold px-3 py-1 bg-brand-gray rounded-full hover:bg-brand-gray-dark hover:text-white transition-colors">HD</button>
-                        <button onClick={() => setOutputResolution({width: 1920, height: 1080})} className="text-xs font-semibold px-3 py-1 bg-brand-gray rounded-full hover:bg-brand-gray-dark hover:text-white transition-colors">Full HD</button>
-                        <button onClick={() => setOutputResolution({width: 3840, height: 2160})} className="text-xs font-semibold px-3 py-1 bg-brand-gray rounded-full hover:bg-brand-gray-dark hover:text-white transition-colors">4K</button>
-                    </div>
-                 </div>
-              </div>
-            )}
+            
             <div className={`flex ${viewMode === 'output' ? 'flex-row' : ''}`}>
                  {viewMode === 'output' && (
-                    <div className="w-64 flex-shrink-0 bg-white border border-brand-gray rounded-lg p-3 mr-4">
-                        <h4 className="font-semibold text-brand-gray-text mb-2 px-1">Painéis no Output</h4>
-                        <div className="space-y-1 max-h-[450px] overflow-y-auto">
-                           {panels.map((panel, index) => {
-                               const isSelected = panel.id === selectedOutputPanelId;
-                               const isDropTarget = sidebarDropTargetId === panel.id && sidebarDropTargetId !== draggingSidebarPanelId;
-                               const isDragging = draggingSidebarPanelId === panel.id;
-                               return (
+                    <div className="w-80 flex-shrink-0 bg-white border border-brand-gray rounded-lg p-3 mr-4 flex flex-col" style={{height: '1000px'}}>
+                        <div className="border-b border-brand-gray pb-2 mb-2">
+                          <h4 className="font-semibold text-brand-gray-text px-1 mb-2">Outputs de Vídeo</h4>
+                          <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                            {videoOutputs.map(output => (
+                              <div key={output.id} onClick={() => setSelectedOutputId(output.id)} className={`p-2 rounded-lg cursor-pointer transition-colors ${selectedOutputId === output.id ? 'bg-brand-purple-light' : 'hover:bg-gray-100'}`}>
+                                <div className="flex items-center justify-between">
+                                  <input type="text" value={output.name} onChange={e => updateVideoOutput(output.id, { name: e.target.value })} className={`font-semibold text-sm w-full bg-white border border-gray-200 focus:ring-1 focus:ring-brand-purple rounded-md px-1 ${selectedOutputId === output.id ? 'text-brand-purple-dark' : 'text-brand-gray-text'}`} />
+                                  {videoOutputs.length > 1 && <button onClick={(e) => { e.stopPropagation(); removeVideoOutput(output.id); }} className="text-red-400 hover:text-red-600 ml-2"><TrashIcon className="w-4 h-4" /></button>}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <input type="number" value={output.width} onChange={e => updateVideoOutput(output.id, { width: parseInt(e.target.value) || 0 })} className="w-full text-xs px-1 py-0.5 border border-brand-gray rounded-md" />
+                                  <span className="text-xs">x</span>
+                                  <input type="number" value={output.height} onChange={e => updateVideoOutput(output.id, { height: parseInt(e.target.value) || 0 })} className="w-full text-xs px-1 py-0.5 border border-brand-gray rounded-md" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <button onClick={addVideoOutput} className="w-full text-sm mt-2 p-2 bg-brand-gray hover:bg-brand-gray-dark/20 rounded-lg transition-colors">+ Adicionar Novo Output</button>
+                        </div>
+
+                        <div className="flex-1 flex flex-col min-h-0">
+                           <h4 className="font-semibold text-brand-gray-text mb-2 px-1">Painéis Não Atribuídos</h4>
+                           <div className="space-y-1 overflow-y-auto flex-1 pr-1">
+                               {panels.filter(p => !p.outputId).map(panel => (
                                    <div key={panel.id}
                                        draggable
                                        onDragStart={(e) => {
                                            e.dataTransfer.effectAllowed = 'move';
-                                           setDraggingSidebarPanelId(panel.id);
+                                           e.dataTransfer.setData('text/plain', panel.id);
                                        }}
-                                       onDragOver={(e) => {
-                                           e.preventDefault();
-                                           if (panel.id !== draggingSidebarPanelId) {
-                                               setSidebarDropTargetId(panel.id);
-                                           }
-                                       }}
-                                       onDragLeave={() => {
-                                           if(sidebarDropTargetId === panel.id) setSidebarDropTargetId(null);
-                                       }}
-                                       onDrop={(e) => {
-                                           e.preventDefault();
-                                           handleSidebarDrop(panel.id);
-                                       }}
-                                       onDragEnd={() => {
-                                           setDraggingSidebarPanelId(null);
-                                           setSidebarDropTargetId(null);
-                                       }}
-                                       onClick={() => setSelectedOutputPanelId(panel.id)}
-                                       className={`p-2 rounded-md cursor-pointer transition-all duration-150 relative ${
-                                           isDropTarget ? 'border-t-2 border-brand-purple' : ''
-                                       } ${
-                                           isDragging ? 'opacity-50 bg-brand-gray-light' : ''
-                                       } ${
-                                           isSelected ? 'bg-brand-purple-light' : 'hover:bg-gray-100'
-                                       }`}
+                                       className="p-2 rounded-md bg-gray-50 border cursor-grab active:cursor-grabbing"
                                    >
-                                       <p className={`font-medium text-sm truncate ${isSelected ? 'text-brand-purple-dark' : 'text-brand-gray-text'}`}>
-                                          <span className="font-bold w-6 inline-block">{index + 1}.</span> {panel.name}
-                                       </p>
-                                       <div className="flex items-center justify-between mt-2 pl-6">
-                                           <span className="text-xs text-brand-gray-dark">Rot: {panel.outputRotation || 0}°</span>
-                                           <div className="flex items-center space-x-1">
-                                               <button onClick={(e) => { e.stopPropagation(); handleRotateOutputPanel(panel.id, 'ccw'); }} className="p-1 rounded hover:bg-gray-200 text-gray-600">
-                                                  <RotateCcwIcon className="w-4 h-4" />
-                                               </button>
-                                               <button onClick={(e) => { e.stopPropagation(); handleRotateOutputPanel(panel.id, 'cw'); }} className="p-1 rounded hover:bg-gray-200 text-gray-600">
-                                                   <RotateCwIcon className="w-4 h-4" />
-                                               </button>
-                                           </div>
-                                       </div>
+                                       <p className="font-medium text-sm truncate text-brand-gray-text">{panel.name}</p>
                                    </div>
-                               );
-                           })}
+                               ))}
+                               {panels.every(p => p.outputId) && (
+                                   <p className="text-xs text-center text-gray-500 py-4">Todos os painéis foram atribuídos.</p>
+                               )}
+                           </div>
                         </div>
                     </div>
                  )}
                 <div 
                     ref={displayAreaRef} 
-                    className={`h-[500px] rounded-lg overflow-hidden border border-brand-gray relative flex-1 
+                    className={`h-[1000px] rounded-lg overflow-hidden border border-brand-gray relative flex-1 
                         ${!isEditMode && !drawingState.active && viewMode !== 'output' ? 'cursor-grab active:cursor-grabbing' : ''} 
                         ${viewMode === 'output' && !draggingOutputPanel ? 'cursor-grab active:cursor-grabbing' : ''}
                         ${drawingState.active || isDeleteCableMode ? 'cursor-crosshair' : ''}
@@ -1838,6 +1875,8 @@ const App: React.FC = () => {
                     onMouseUp={handleDisplayMouseUp}
                     onMouseLeave={handleDisplayMouseUp}
                     onClick={handleDisplayClick}
+                    onDragOver={(e) => { if (viewMode === 'output' && selectedOutput) e.preventDefault(); }}
+                    onDrop={handleDropOnOutput}
                 >
                     <div 
                         className="pan-zoom-content absolute top-0 left-0"
@@ -1845,9 +1884,9 @@ const App: React.FC = () => {
                       
                       {(viewMode === 'layout' || viewMode === 'cabling') && renderPanelsForDisplay(false)}
 
-                      {viewMode === 'output' && (
-                        <div className="relative bg-gray-900 border border-gray-700 shadow-inner" style={{ width: outputResolution.width, height: outputResolution.height }}>
-                            {panels.map((panel, index) => {
+                      {viewMode === 'output' && selectedOutput && (
+                        <div className="relative bg-gray-900 border border-gray-700 shadow-inner" style={{ width: selectedOutput.width, height: selectedOutput.height }}>
+                            {panels.filter(p => p.outputId === selectedOutputId).map((panel, index) => {
                                 const metrics = panelMetrics.metricsMap.get(panel.id);
                                 const pos = panel.outputPosition || { x: 0, y: 0 };
                                 if (!metrics) return null;
@@ -1864,6 +1903,7 @@ const App: React.FC = () => {
                                         transformOrigin: 'top left',
                                     }}
                                     onPanelDragStart={handleOutputPanelDragStart}
+                                    onUnassign={handleUnassignFromOutput}
                                     panelNumber={index + 1}
                                 />
                             })}

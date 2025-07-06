@@ -11,6 +11,13 @@ export interface PanelTypeInfo {
 
 export type PanelLayoutType = 'left-strip' | 'center' | 'right-strip' | 'dj-booth';
 
+export interface VideoOutput {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
 export interface Panel {
   id: string;
   name: string;
@@ -20,6 +27,7 @@ export interface Panel {
   heightM: number;
   spacingRightM: number;
   customPosition?: { x: number; y: number };
+  outputId?: string; // ID of the VideoOutput this panel belongs to
   outputPosition?: { x: number; y: number };
   outputRotation?: 0 | 90 | 180 | 270;
   hiddenModuleIndices?: number[];
@@ -42,7 +50,7 @@ export interface CablePoint {
 }
 
 export interface Cable {
-  id: string;
+  id:string;
   points: CablePoint[];
 }
 
