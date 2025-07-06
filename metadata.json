@@ -1,0 +1,6 @@
+{
+  "name": "Calculadora de Painel LED 1.1",
+  "description": "Uma ferramenta para calcular e visualizar configurações de painéis de LED, determinando dimensões, peso, consumo de energia e especificações de conteúdo para eventos.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
