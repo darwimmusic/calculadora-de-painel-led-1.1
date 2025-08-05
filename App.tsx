@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Panel, PanelLayoutType, PanelMetrics, PanelTypeInfo, Cable, CablePoint, CablingPattern, ViewMode, VideoOutput } from './types';
 import { PANEL_TYPES, CONTENT_MANUAL_DEFAULT } from './constants';
 import { calculatePanelMetrics } from './services/calculationService';
@@ -1518,7 +1519,7 @@ const App: React.FC = () => {
             <div className="flex justify-between items-center py-4">
                 <div className="flex items-center space-x-3">
                     <CalculatorIcon className="w-8 h-8 text-brand-purple"/>
-                    <h1 className="text-2xl font-bold text-brand-gray-text">Calculadora de Painel LED</h1>
+                    <h1 className="text-2xl font-bold text-brand-gray-text">Pixel Mapper</h1>
                 </div>
                 <button 
                   onClick={handleOpenExportModal}
